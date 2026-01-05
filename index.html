@@ -1,165 +1,140 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>SNAKE PRO</title>
+<title>SnakySnaky Pro</title>
 <style>
-body{
-    margin:0;
-    background:#000;
-    color:#0f0;
-    font-family:monospace;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-}
-#menu,#gameBox{text-align:center}
-canvas{
-    background:#000;
-    border:3px solid #0f0;
-    box-shadow:0 0 20px #0f0;
-}
-button,select{
-    background:#000;
-    color:#0f0;
-    border:2px solid #0f0;
-    padding:8px 12px;
-    margin:5px;
-    cursor:pointer;
-}
-.hidden{display:none}
+  body { font-family: sans-serif; text-align: center; background: #111; color: white; }
+  canvas { background: #222; display: block; margin: 20px auto; }
+  #game, #chat { margin-top: 20px; }
+  #chatMessages { max-height: 200px; overflow-y: auto; background: #333; padding: 5px; }
+  input, button { padding: 5px; margin: 2px; }
 </style>
 </head>
 <body>
 
-<div id="menu">
-    <h1>🐍 SNAKE PRO</h1>
-    <p>🏆 Рекорд: <span id="best">0</span></p>
-    <select id="skin">
-        <option value="green">🟢 Классик</option>
-        <option value="neon">💚 Неон</option>
-        <option value="rainbow">🌈 Радуга</option>
-    </select><br>
-    <button onclick="start()">▶ Старт</button>
+<h1>SnakySnaky Pro</h1>
+
+<div id="game">
+  <canvas id="canvas" width="400" height="400"></canvas>
+  <h3>Счёт: <span id="score">0</span></h3>
+  <h4>Таблица лидеров:</h4>
+  <ul id="leaderboard"></ul>
 </div>
 
-<div id="gameBox" class="hidden">
-    <p>
-        Очки: <span id="score">0</span> |
-        Уровень: <span id="level">1</span>
-    </p>
-    <canvas id="game" width="400" height="400"></canvas><br>
-    <button onclick="backToMenu()">⏹ Меню</button>
+<div id="chat">
+  <h3>Чат</h3>
+  <div id="chatMessages"></div>
+  <input id="chatInput" placeholder="Сообщение">
+  <button onclick="sendMessage()">Отправить</button>
 </div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
 <script>
-const canvas=document.getElementById("game");
-const ctx=canvas.getContext("2d");
-const box=20;
+// ===== Firebase Config =====
+const firebaseConfig = {
+  apiKey: "ТВОЙ_API_KEY",
+  authDomain: "ТВОЙ_PROJECT_ID.firebaseapp.com",
+  projectId: "ТВОЙ_PROJECT_ID",
+  storageBucket: "ТВОЙ_PROJECT_ID.appspot.com",
+  messagingSenderId: "XXX",
+  appId: "XXX"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
-let snake,food,dir,score,level,speed,loop,skin,obstacles=[];
-let best=localStorage.getItem("best")||0;
-document.getElementById("best").textContent=best;
+// ===== Игра =====
+let canvas = document.getElementById('canvas');
+let ctx = canvas.getContext('2d');
+let snake = [{x:10,y:10}], dir = {x:1,y:0}, food = {x:15,y:15}, score=0;
+document.getElementById('score').innerText = score;
 
-document.addEventListener("keydown",e=>{
-    if(e.key==="ArrowLeft"&&dir!=="RIGHT")dir="LEFT";
-    if(e.key==="ArrowRight"&&dir!=="LEFT")dir="RIGHT";
-    if(e.key==="ArrowUp"&&dir!=="DOWN")dir="UP";
-    if(e.key==="ArrowDown"&&dir!=="UP")dir="DOWN";
+document.addEventListener('keydown', e => {
+  if(e.key==="ArrowUp" && dir.y==0) dir={x:0,y:-1};
+  if(e.key==="ArrowDown" && dir.y==0) dir={x:0,y:1};
+  if(e.key==="ArrowLeft" && dir.x==0) dir={x:-1,y:0};
+  if(e.key==="ArrowRight" && dir.x==0) dir={x:1,y:0};
 });
 
-function start(){
-    document.getElementById("menu").classList.add("hidden");
-    document.getElementById("gameBox").classList.remove("hidden");
-    skin=document.getElementById("skin").value;
-    snake=[{x:200,y:200}];
-    dir="RIGHT";
-    score=0;
-    level=1;
-    speed=120;
-    obstacles=[];
-    food=randomPos();
-    clearInterval(loop);
-    loop=setInterval(draw,speed);
-}
+setInterval(gameLoop, 150);
+loadLeaderboard();
+loadChat();
 
-function backToMenu(){
-    clearInterval(loop);
-    document.getElementById("menu").classList.remove("hidden");
-    document.getElementById("gameBox").classList.add("hidden");
-}
+function gameLoop(){
+  let head = {x:snake[0].x+dir.x, y:snake[0].y+dir.y};
+  snake.unshift(head);
 
-function randomPos(){
-    return{
-        x:Math.floor(Math.random()*20)*box,
-        y:Math.floor(Math.random()*20)*box
-    };
-}
+  if(head.x==food.x && head.y==food.y){
+    score++;
+    document.getElementById('score').innerText = score;
+    spawnFood();
+    updateLeaderboard();
+  } else snake.pop();
 
-function snakeColor(i){
-    if(skin==="green")return i? "#070":"#0f0";
-    if(skin==="neon")return i? "#0ff":"#fff";
-    if(skin==="rainbow")return `hsl(${i*40},100%,50%)`;
+  if(head.x<0||head.y<0||head.x>=20||head.y>=20||snake.slice(1).some(s=>s.x==head.x&&s.y==head.y)){
+    alert("Игра окончена! Счёт: "+score);
+    snake=[{x:10,y:10}]; dir={x:1,y:0}; score=0;
+  }
+
+  draw();
 }
 
 function draw(){
-    ctx.clearRect(0,0,400,400);
+  ctx.fillStyle="#222"; ctx.fillRect(0,0,400,400);
+  ctx.fillStyle="lime"; snake.forEach(s=>ctx.fillRect(s.x*20,s.y*20,18,18));
+  ctx.fillStyle="red"; ctx.fillRect(food.x*20,food.y*20,18,18);
+}
 
-    // obstacles
-    ctx.fillStyle="#f00";
-    obstacles.forEach(o=>ctx.fillRect(o.x,o.y,box,box));
+function spawnFood(){
+  food={x:Math.floor(Math.random()*20),y:Math.floor(Math.random()*20)};
+}
 
-    // snake
-    snake.forEach((s,i)=>{
-        ctx.fillStyle=snakeColor(i);
-        ctx.fillRect(s.x,s.y,box,box);
+// ===== Таблица лидеров =====
+function updateLeaderboard(){
+  // Генерируем случайный юзернейм
+  let user = "Игрок"+Math.floor(Math.random()*10000);
+  db.collection("leaderboard").add({name:user, score:score});
+}
+
+function loadLeaderboard(){
+  db.collection("leaderboard").orderBy("score","desc").limit(5)
+    .onSnapshot(snapshot=>{
+      let html="";
+      snapshot.forEach(doc=>{
+        html+=`<li>${doc.data().name}: ${doc.data().score}</li>`;
+      });
+      document.getElementById('leaderboard').innerHTML = html;
     });
+}
 
-    // food
-    ctx.fillStyle="yellow";
-    ctx.fillRect(food.x,food.y,box,box);
+// ===== Чат =====
+function sendMessage(){
+  const msg = document.getElementById('chatInput').value;
+  if(!msg) return;
+  let user = "Игрок"+Math.floor(Math.random()*10000);
+  db.collection("chat").add({
+    user:user,
+    message:msg,
+    ts:firebase.firestore.FieldValue.serverTimestamp()
+  });
+  document.getElementById('chatInput').value="";
+}
 
-    let head={...snake[0]};
-    if(dir==="LEFT")head.x-=box;
-    if(dir==="RIGHT")head.x+=box;
-    if(dir==="UP")head.y-=box;
-    if(dir==="DOWN")head.y+=box;
-
-    // collision
-    if(
-        head.x<0||head.y<0||head.x>=400||head.y>=400||
-        snake.some(s=>s.x===head.x&&s.y===head.y)||
-        obstacles.some(o=>o.x===head.x&&o.y===head.y)
-    ){
-        if(score>best){
-            best=score;
-            localStorage.setItem("best",best);
-        }
-        alert("💀 GAME OVER");
-        backToMenu();
-        document.getElementById("best").textContent=best;
-        return;
-    }
-
-    if(head.x===food.x&&head.y===food.y){
-        score++;
-        food=randomPos();
-        if(score%5===0){
-            level++;
-            speed=Math.max(50,speed-10);
-            obstacles.push(randomPos());
-            clearInterval(loop);
-            loop=setInterval(draw,speed);
-        }
-    }else snake.pop();
-
-    snake.unshift(head);
-
-    document.getElementById("score").textContent=score;
-    document.getElementById("level").textContent=level;
+function loadChat(){
+  db.collection("chat").orderBy("ts","asc")
+    .onSnapshot(snapshot=>{
+      let html="";
+      snapshot.forEach(doc=>{
+        const data=doc.data();
+        html+=`<b>${data.user}:</b> ${data.message}<br>`;
+      });
+      document.getElementById('chatMessages').innerHTML=html;
+      document.getElementById('chatMessages').scrollTop=10000;
+    });
 }
 </script>
-
 </body>
 </html>
